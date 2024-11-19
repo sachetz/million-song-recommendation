@@ -1,0 +1,4 @@
+tables==3.10.1
+h5py==3.12.1
+pandas==2.2.3
+pyarrow==18.0.0

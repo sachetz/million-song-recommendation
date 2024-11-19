@@ -1,0 +1,25 @@
+Group: analysis
+Dataset: analysis/bars_confidence | Shape: (87,) | Data type: float64
+Dataset: analysis/bars_start | Shape: (87,) | Data type: float64
+Dataset: analysis/beats_confidence | Shape: (350,) | Data type: float64
+Dataset: analysis/beats_start | Shape: (350,) | Data type: float64
+Dataset: analysis/sections_confidence | Shape: (6,) | Data type: float64
+Dataset: analysis/sections_start | Shape: (6,) | Data type: float64
+Dataset: analysis/segments_confidence | Shape: (585,) | Data type: float64
+Dataset: analysis/segments_loudness_max | Shape: (585,) | Data type: float64
+Dataset: analysis/segments_loudness_max_time | Shape: (585,) | Data type: float64
+Dataset: analysis/segments_loudness_start | Shape: (585,) | Data type: float64
+Dataset: analysis/segments_pitches | Shape: (585, 12) | Data type: float64
+Dataset: analysis/segments_start | Shape: (585,) | Data type: float64
+Dataset: analysis/segments_timbre | Shape: (585, 12) | Data type: float64
+Dataset: analysis/songs | Shape: (1,) | Data type: [('analysis_sample_rate', '<i4'), ('audio_md5', 'S32'), ('danceability', '<f8'), ('duration', '<f8'), ('end_of_fade_in', '<f8'), ('energy', '<f8'), ('idx_bars_confidence', '<i4'), ('idx_bars_start', '<i4'), ('idx_beats_confidence', '<i4'), ('idx_beats_start', '<i4'), ('idx_sections_confidence', '<i4'), ('idx_sections_start', '<i4'), ('idx_segments_confidence', '<i4'), ('idx_segments_loudness_max', '<i4'), ('idx_segments_loudness_max_time', '<i4'), ('idx_segments_loudness_start', '<i4'), ('idx_segments_pitches', '<i4'), ('idx_segments_start', '<i4'), ('idx_segments_timbre', '<i4'), ('idx_tatums_confidence', '<i4'), ('idx_tatums_start', '<i4'), ('key', '<i4'), ('key_confidence', '<f8'), ('loudness', '<f8'), ('mode', '<i4'), ('mode_confidence', '<f8'), ('start_of_fade_out', '<f8'), ('tempo', '<f8'), ('time_signature', '<i4'), ('time_signature_confidence', '<f8'), ('track_id', 'S32')]
+Group: metadata
+Dataset: metadata/artist_terms | Shape: (11,) | Data type: |S256
+Dataset: metadata/artist_terms_freq | Shape: (11,) | Data type: float64
+Dataset: metadata/artist_terms_weight | Shape: (11,) | Data type: float64
+Dataset: metadata/similar_artists | Shape: (100,) | Data type: |S20
+Dataset: metadata/songs | Shape: (1,) | Data type: [('analyzer_version', 'S32'), ('artist_7digitalid', '<i4'), ('artist_familiarity', '<f8'), ('artist_hotttnesss', '<f8'), ('artist_id', 'S32'), ('artist_latitude', '<f8'), ('artist_location', 'S1024'), ('artist_longitude', '<f8'), ('artist_mbid', 'S40'), ('artist_name', 'S1024'), ('artist_playmeid', '<i4'), ('genre', 'S1024'), ('idx_artist_terms', '<i4'), ('idx_similar_artists', '<i4'), ('release', 'S1024'), ('release_7digitalid', '<i4'), ('song_hotttnesss', '<f8'), ('song_id', 'S32'), ('title', 'S1024'), ('track_7digitalid', '<i4')]
+Group: musicbrainz
+Dataset: musicbrainz/artist_mbtags | Shape: (0,) | Data type: |S256
+Dataset: musicbrainz/artist_mbtags_count | Shape: (0,) | Data type: int32
+Dataset: musicbrainz/songs | Shape: (1,) | Data type: [('idx_artist_mbtags', '<i4'), ('year', '<i4')]
