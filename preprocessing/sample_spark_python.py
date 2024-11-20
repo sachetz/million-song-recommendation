@@ -1,0 +1,160 @@
+import pandas as pd
+import h5py
+from pyspark.sql import SparkSession, Row
+from pyspark import SparkContext
+from pyspark.sql.types import *
+
+def convert_to_df(file_path):
+    h5 = h5py.File(file_path, 'r')
+    store = pd.HDFStore(file_path, mode = 'r')
+
+    song = pd.concat([
+        store.get("metadata/songs"),
+        store.get("analysis/songs"),
+        store.get("musicbrainz/songs"),
+        pd.Series([[item for item in list(h5.get("analysis/bars_confidence"))]], name = "bars_confidence"),
+        pd.Series([[item for item in list(h5.get("analysis/bars_start"))]], name = "bars_start"),
+        pd.Series([[item for item in list(h5.get("analysis/beats_confidence"))]], name = "beats_confidence"),
+        pd.Series([[item for item in list(h5.get("analysis/beats_start"))]], name = "beats_start"),
+        pd.Series([[item for item in list(h5.get("analysis/sections_confidence"))]], name = "sections_confidence"),
+        pd.Series([[item for item in list(h5.get("analysis/sections_start"))]], name = "sections_start"),
+        pd.Series([[item for item in list(h5.get("analysis/segments_confidence"))]], name = "segments_confidence"),
+        pd.Series([[item for item in list(h5.get("analysis/segments_loudness_max"))]], name = "segments_loudness_max"),
+        pd.Series([[item for item in list(h5.get("analysis/segments_loudness_max_time"))]], name = "segments_loudness_max_time"),
+        pd.Series([[item for item in list(h5.get("analysis/segments_loudness_start"))]], name = "segments_loudness_start"),
+        pd.Series([[item for item in list(h5.get("analysis/segments_pitches"))]], name = "segments_pitches"),
+        pd.Series([[item for item in list(h5.get("analysis/segments_start"))]], name = "segments_start"),
+        pd.Series([[item for item in list(h5.get("analysis/segments_timbre"))]], name = "segments_timbre"),
+        pd.Series([[item for item in list(h5.get("analysis/tatums_confidence"))]], name = "tatums_confidence"),
+        pd.Series([[item for item in list(h5.get("analysis/tatums_start"))]], name = "tatums_start"),
+        pd.Series([[item.decode() for item in list(h5.get("metadata/artist_terms"))]], name = "artist_terms"),
+        pd.Series([[item for item in list(h5.get("metadata/artist_terms_freq"))]], name = "artist_terms_freq"),
+        pd.Series([[item for item in list(h5.get("metadata/artist_terms_weight"))]], name = "artist_terms_weight"),
+        pd.Series([[item.decode() for item in list(h5.get("metadata/similar_artists"))]], name = "similar_artists"),
+        pd.Series([[item for item in list(h5.get("musicbrainz/artist_mbtags"))]], name = "artist_mbtags"),
+        pd.Series([[item for item in list(h5.get("musicbrainz/artist_mbtags_count"))]], name = "artist_mbtags_count")
+    ], axis=1, join='outer')
+
+    columns_to_use = [
+        "analysis_sample_rate",
+        "artist_7digitalid",
+        "artist_familiarity",
+        "artist_hotttnesss",
+        "artist_id",
+        "artist_latitude",
+        "artist_location",
+        "artist_longitude",
+        "artist_mbid",
+        "artist_mbtags",
+        "artist_mbtags_count",
+        "artist_name",
+        "artist_playmeid",
+        "artist_terms",
+        "artist_terms_freq",
+        "artist_terms_weight",
+        "audio_md5",
+        "bars_confidence",
+        "bars_start",
+        "beats_confidence",
+        "beats_start",
+        "danceability",
+        "duration",
+        "end_of_fade_in",
+        "energy",
+        "key",
+        "key_confidence",
+        "loudness",
+        "mode",
+        "mode_confidence",
+        "release",
+        "release_7digitalid",
+        "sections_confidence",
+        "sections_start",
+        "segments_confidence",
+        "segments_loudness_max",
+        "segments_loudness_max_time",
+        "segments_loudness_start",
+        "segments_pitches",
+        "segments_start",
+        "segments_timbre",
+        "similar_artists",
+        "song_hotttnesss",
+        "song_id",
+        "start_of_fade_out",
+        "tatums_confidence",
+        "tatums_start",
+        "tempo",
+        "time_signature",
+        "time_signature_confidence",
+        "title",
+        "track_id",
+        "track_7digitalid",
+        "year"
+    ]
+    song = song[columns_to_use]
+    
+    return song.values.tolist()
+
+
+schema = StructType([
+    StructField("analysis_sample_rate", DoubleType(), nullable = True),
+    StructField("artist_7digitalid", LongType(), nullable = True),
+    StructField("artist_familiarity", DoubleType(), nullable = True),
+    StructField("artist_hotttnesss", DoubleType(), nullable = True),
+    StructField("artist_id", StringType(), nullable = True),
+    StructField("artist_latitude", DoubleType(), nullable = True),
+    StructField("artist_location", StringType(), nullable = True),
+    StructField("artist_longitude", DoubleType(), nullable = True),
+    StructField("artist_mbid", StringType(), nullable = True),
+    StructField("artist_mbtags", ArrayType(StringType()), nullable = True),
+    StructField("artist_mbtags_count", ArrayType(LongType()), nullable = True),
+    StructField("artist_name", StringType(), nullable = True),
+    StructField("artist_playmeid", LongType(), nullable = True),
+    StructField("artist_terms", ArrayType(StringType()), nullable = True),
+    StructField("artist_terms_freq", ArrayType(DoubleType()), nullable = True),
+    StructField("artist_terms_weight", ArrayType(DoubleType()), nullable = True),
+    StructField("audio_md5", StringType(), nullable = True),
+    StructField("bars_confidence", ArrayType(DoubleType()), nullable = True),
+    StructField("bars_start", ArrayType(DoubleType()), nullable = True),
+    StructField("beats_confidence", ArrayType(DoubleType()), nullable = True),
+    StructField("beats_start", ArrayType(DoubleType()), nullable = True),
+    StructField("danceability", DoubleType(), nullable = True),
+    StructField("duration", DoubleType(), nullable = True),
+    StructField("end_of_fade_in", DoubleType(), nullable = True),
+    StructField("energy", DoubleType(), nullable = True),
+    StructField("key", LongType(), nullable = True),
+    StructField("key_confidence", DoubleType(), nullable = True),
+    StructField("loudness", DoubleType(), nullable = True),
+    StructField("mode", LongType(), nullable = True),
+    StructField("mode_confidence", DoubleType(), nullable = True),
+    StructField("release", StringType(), nullable = True),
+    StructField("release_7digitalid", LongType(), nullable = True),
+    StructField("sections_confidence", ArrayType(DoubleType()), nullable = True),
+    StructField("sections_start", ArrayType(DoubleType()), nullable = True),
+    StructField("segments_confidence", ArrayType(DoubleType()), nullable = True),
+    StructField("segments_loudness_max", ArrayType(DoubleType()), nullable = True),
+    StructField("segments_loudness_max_time", ArrayType(DoubleType()), nullable = True),
+    StructField("segments_loudness_start", ArrayType(DoubleType()), nullable = True),
+    StructField("segments_pitches", ArrayType(ArrayType(DoubleType())), nullable = True),
+    StructField("segments_start", ArrayType(DoubleType()), nullable = True),
+    StructField("segments_timbre", ArrayType(ArrayType(DoubleType())), nullable = True),
+    StructField("similar_artists", ArrayType(StringType()), nullable = True),
+    StructField("song_hotttnesss", DoubleType(), nullable = True),
+    StructField("song_id", StringType(), nullable = True),
+    StructField("start_of_fade_out", DoubleType(), nullable = True),
+    StructField("tatums_confidence", ArrayType(DoubleType()), nullable = True),
+    StructField("tatums_start", ArrayType(DoubleType()), nullable = True),
+    StructField("tempo", DoubleType(), nullable = True),
+    StructField("time_signature", LongType(), nullable = True),
+    StructField("time_signature_confidence", DoubleType(), nullable = True),
+    StructField("title", StringType(), nullable = True),
+    StructField("track_id", StringType(), nullable = True),
+    StructField("track_7digitalid", LongType(), nullable = True),
+    StructField("year", LongType(), nullable = True)
+])
+
+spark = SparkSession.builder.appName("Milion Songs Dataset").getOrCreate()
+sc = SparkContext.getOrCreate()
+rdd = sc.parallelize(["/tmp/sachetz/million_song/TRAAAAK128F9318786.h5"]).flatMap(lambda path: convert_to_df(path))
+df = spark.createDataFrame(rdd, schema)
+print("NUM_SONGS_LOADED: ", df.count())
