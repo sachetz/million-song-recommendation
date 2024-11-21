@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import h5py
 
@@ -89,8 +90,29 @@ def convert_to_df(file_path):
         "year"
     ]
     song = song[columns_to_use]
+
+    store.close()
+    h5.close()
     
     return song
 
-song = convert_to_df("/Users/sachetz/uchicago_mpcs/big_data_app_arch/A/A/A/TRAAAAK128F9318786.h5")
-song.to_parquet("TRAAAAK128F9318786.parquet", engine="pyarrow")
+def process_directory(dir_path, output_file):
+    dfs = []
+
+    for root, dirs, files in os.walk(dir_path):
+        for file in files:
+            if file.endswith(".h5"):
+                file_path = os.path.join(root, file)
+                try:
+                    df = convert_to_df(file_path)
+                    dfs.append(df)
+                except Exception as e:
+                    print(f"Error processing {file_path}: {e}")
+
+    # Combine all data into a single DataFrame
+    combined_df = pd.concat(dfs, ignore_index=True)
+    # Write to parquet
+    combined_df.to_parquet(output_file, engine="pyarrow")
+
+
+process_directory("/Users/sachetz/uchicago_mpcs/big_data_app_arch/A/A/A", "A.parquet")
