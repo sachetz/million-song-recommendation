@@ -1,4 +1,4 @@
-val raw_msd_df = spark.read.parquet("/sachetz/msd_a")
+val raw_msd_df = spark.read.parquet("wasbs://hbase-mpcs5301-2024-10-20t23-28-51-804z@hbasempcs5301hdistorage.blob.core.windows.net/sachetz/msd_a")
 
 raw_msd_df.columns.filter(c => raw_msd_df.filter(col(c).isNull).count > 0)
 // Empty Columns: Array(artist_familiarity, artist_latitude, artist_longitude, song_hotttnesss)
@@ -67,4 +67,4 @@ val preprocessedDF = filledSongHotnessDF.drop(
     ).withColumnRenamed("artist_familiarity_filled", "artist_familiarity").withColumnRenamed("song_hotttnesss_filled", "song_hotttnesss").withColumnRenamed("release", "album_name")
 
 val optimizedDF = preprocessedDF.repartition(20)
-optimizedDF.write.mode("overwrite").parquet("/sachetz/msd")
+optimizedDF.write.mode("overwrite").parquet("wasbs://hbase-mpcs5301-2024-10-20t23-28-51-804z@hbasempcs5301hdistorage.blob.core.windows.net/sachetz/msd")
