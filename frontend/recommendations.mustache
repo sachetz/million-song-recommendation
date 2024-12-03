@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music Recommendations</title>
+    <style>
+        /* Add your CSS styles here */
+    </style>
+</head>
+<body>
+    <h1>Music Recommendations for User: {{userId}}</h1>
+    <div id="songInfo"></div>
+    <form id="ratingForm">
+        <label for="rating">Rate this song (0-5):</label>
+        <input type="number" id="rating" name="rating" min="0" max="5" step="0.5" required>
+        <button type="submit">Submit Rating</button>
+    </form>
+
+    <script>
+        let songs = {{{songsJson}}};
+        let currentIndex = 0;
+        let userId = '{{userId}}';
+
+        function displaySong() {
+            if (currentIndex < songs.length) {
+                const song = songs[currentIndex];
+                const songInfo = document.getElementById('songInfo');
+                songInfo.innerHTML = `
+                    <h2>${song.songName}</h2>
+                    <p><strong>Artist:</strong> ${song.artistName}</p>
+                    <p><strong>Album:</strong> ${song.albumName}</p>
+                    <p><strong>Year:</strong> ${song.year}</p>
+                `;
+            } else {
+                document.body.innerHTML = '<h2>No more recommendations available.</h2>';
+            }
+        }
+
+        document.getElementById('ratingForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const rating = document.getElementById('rating').value;
+            const song = songs[currentIndex];
+
+            try {
+                const response = await fetch('/rate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        userId: userId,
+                        songId: song.songId,
+                        rating: rating
+                    }),
+                });
+
+                if (response.ok) {
+                    currentIndex++;
+                    displaySong();
+                    document.getElementById('rating').value = '';
+                } else {
+                    alert('Failed to submit rating. Please try again.');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('An error occurred. Please try again.');
+            }
+        });
+
+        displaySong();
+    </script>
+</body>
+</html>
