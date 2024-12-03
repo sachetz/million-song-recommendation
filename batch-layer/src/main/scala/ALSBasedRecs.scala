@@ -1,26 +1,23 @@
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
 import org.apache.spark.ml.recommendation.ALS
-import org.apache.hadoop.hbase.HBaseConfiguration
-import org.apache.hadoop.hbase.client.{ConnectionFactory, Put}
-import org.apache.hadoop.hbase.TableName
-import org.apache.hadoop.hbase.util.Bytes
-import com.hortonworks.hwc.HiveWarehouseSession
-import com.hortonworks.spark.sql.hive.llap.HiveWarehouseSession.HIVE_WAREHOUSE_CONNECTOR
+//import com.hortonworks.hwc.HiveWarehouseSession
+//import com.hortonworks.spark.sql.hive.llap.HiveWarehouseSession.HIVE_WAREHOUSE_CONNECTOR
 
 object ALSBasedRecs {
     def main(args: Array[String]): Unit = {
         // Initialize Spark Session with Hive support
         val spark = SparkSession.builder()
             .appName("sachetz_batch_alsbasedrecs")
+            .enableHiveSupport()
             .getOrCreate()
-        val hive = HiveWarehouseSession.session(spark).build()
-        hive.setDatabase("default")
-
-        val sachetz_user_actions = hive.table("sachetz_user_actions")
-        sachetz_user_actions.createOrReplaceTempView("sachetz_user_actions")
-        val sachetz_msd_optimised = hive.table("sachetz_msd_optimised")
-        sachetz_msd_optimised.createOrReplaceTempView("sachetz_msd_optimised")
+//        val hive = HiveWarehouseSession.session(spark).build()
+//        hive.setDatabase("default")
+//
+//        val sachetz_user_actions = hive.table("sachetz_user_actions")
+//        sachetz_user_actions.createOrReplaceTempView("sachetz_user_actions")
+//        val sachetz_msd_optimised = hive.table("sachetz_msd_optimised")
+//        sachetz_msd_optimised.createOrReplaceTempView("sachetz_msd_optimised")
 
         import spark.implicits._
 
@@ -29,7 +26,7 @@ object ALSBasedRecs {
             .filter($"rating".isNotNull && $"user_id".isNotNull && $"song_id".isNotNull)
 
         // Load MSD Optimised for Song Details
-        val msd = spark.sql("SELECT song_id, title, artist_name, album_name, year FROM sachetz_msd_optimised")
+        val msd = spark.sql("SELECT song_id, title, artist_name, album_name, year FROM sachetz_msd")
             .select("song_id", "title", "artist_name", "album_name", "year")
 
         // Prepare ALS Model
@@ -66,12 +63,11 @@ object ALSBasedRecs {
 
         // Save Recommendations to Hive Table
         hiveReadyRecs.write
-            .format(HIVE_WAREHOUSE_CONNECTOR)
             .mode("overwrite")
-            .option("table", "sachetz_ALSRecs_hive")
-            .save()
+            .insertInto("sachetz_ALSRecs_hive")
 
         // Stop Spark Session
+//        hive.close()
         spark.stop()
     }
 }

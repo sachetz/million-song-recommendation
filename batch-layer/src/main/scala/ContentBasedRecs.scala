@@ -3,22 +3,23 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.ml.feature.VectorAssembler
 import org.apache.spark.ml.linalg.Vector
-import com.hortonworks.hwc.HiveWarehouseSession
-import com.hortonworks.spark.sql.hive.llap.HiveWarehouseSession.HIVE_WAREHOUSE_CONNECTOR
+//import com.hortonworks.hwc.HiveWarehouseSession
+//import com.hortonworks.spark.sql.hive.llap.HiveWarehouseSession.HIVE_WAREHOUSE_CONNECTOR
 
 object ContentBasedRecs {
     def main(args: Array[String]): Unit = {
         // Initialize Spark Session with Hive support
         val spark = SparkSession.builder()
             .appName("sachetz_batch_contentbasedrecs")
+            .enableHiveSupport()
             .getOrCreate()
-        val hive = HiveWarehouseSession.session(spark).build()
-        hive.setDatabase("default")
-
-        val sachetz_user_actions = hive.table("sachetz_user_actions")
-        sachetz_user_actions.createOrReplaceTempView("sachetz_user_actions")
-        val sachetz_msd_optimised = hive.table("sachetz_msd")
-        sachetz_msd_optimised.createOrReplaceTempView("sachetz_msd_optimised")
+//        val hive = HiveWarehouseSession.session(spark).build()
+//        hive.setDatabase("default")
+//
+//        val sachetz_user_actions = hive.table("sachetz_user_actions")
+//        sachetz_user_actions.createOrReplaceTempView("sachetz_user_actions")
+//        val sachetz_msd_optimised = hive.table("sachetz_msd")
+//        sachetz_msd_optimised.createOrReplaceTempView("sachetz_msd_optimised")
 
         import spark.implicits._
 
@@ -28,7 +29,7 @@ object ContentBasedRecs {
             .filter($"rating" >= highRatingThreshold)
 
         // Join with MSD Optimised to Get Song Features
-        val msdFeatures = spark.sql("SELECT * FROM sachetz_msd_optimised")
+        val msdFeatures = spark.sql("SELECT * FROM sachetz_msd")
             .select("song_id", "artist_hotttnesss", "danceability", "duration", "energy",
                 "loudness", "tempo", "song_hotttnesss", "title", "artist_name", "album_name", "year")
         val userLikedSongs = userActions.join(msdFeatures, "song_id")
@@ -87,12 +88,12 @@ object ContentBasedRecs {
             )
 
         // Insert data into the Hive table
-        recommendations.write.format(HIVE_WAREHOUSE_CONNECTOR)
+        recommendations.write
             .mode("overwrite") // Use "append" if you don't want to overwrite the table
-            .option("table", "sachetz_ContentBasedRecs_hive") // Insert into the external Hive table
-            .save()
+            .insertInto("sachetz_ContentBasedRecs_hive")
 
         // Stop Spark Session
+//        hive.close()
         spark.stop()
     }
 }

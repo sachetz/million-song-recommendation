@@ -139,12 +139,12 @@ only. It has no influence on the Maven build itself. -->
 			<artifactId>spark-mllib_2.11</artifactId>
 			<version>2.3.0</version>
 		</dependency>
-		<dependency>
-			<groupId>com.hortonworks</groupId>
-			<artifactId>hive-warehouse-connector</artifactId>
-			<version>2.1.0.5.1.5.6</version>
-			<scope>system</scope>
-			<systemPath>${project.basedir}/lib/hive-warehouse-connector-assembly-2.1.0.5.1.5.6.jar</systemPath>
-		</dependency>
+<!--		<dependency>-->
+<!--			<groupId>com.hortonworks</groupId>-->
+<!--			<artifactId>hive-warehouse-connector</artifactId>-->
+<!--			<version>2.1.0.5.1.5.6</version>-->
+<!--			<scope>system</scope>-->
+<!--			<systemPath>${project.basedir}/lib/hive-warehouse-connector-assembly-2.1.0.5.1.5.6.jar</systemPath>-->
+<!--		</dependency>-->
 	</dependencies>
 </project>
