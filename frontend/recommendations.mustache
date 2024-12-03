@@ -4,17 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Music Recommendations</title>
-    <style>
-        /* Add your CSS styles here */
-    </style>
 </head>
 <body>
     <h1>Music Recommendations for User: {{userId}}</h1>
     <div id="songInfo"></div>
-    <form id="ratingForm">
+    <form id="actionForm">
         <label for="rating">Rate this song (0-5):</label>
         <input type="number" id="rating" name="rating" min="0" max="5" step="0.5" required>
         <button type="submit">Submit Rating</button>
+        <button type="button" id="skipButton">Skip Song</button>
     </form>
 
     <script>
@@ -37,36 +35,44 @@
             }
         }
 
-        document.getElementById('ratingForm').addEventListener('submit', async (e) => {
+        document.getElementById('actionForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const rating = document.getElementById('rating').value;
+            await sendAction("listened", document.getElementById('rating').value);
+            document.getElementById('rating').value = '';
+            currentIndex++;
+            displaySong();
+        });
+
+        document.getElementById('skipButton').addEventListener('click', async () => {
+            await sendAction("skipped", "0");
+            currentIndex++;
+            displaySong();
+        });
+
+        async function sendAction(action, rating) {
             const song = songs[currentIndex];
 
             try {
                 const response = await fetch('/rate', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        userId: userId,
+                        userId,
                         songId: song.songId,
-                        rating: rating
-                    }),
+                        rating,
+                        action
+                    })
                 });
 
-                if (response.ok) {
-                    currentIndex++;
-                    displaySong();
-                    document.getElementById('rating').value = '';
-                } else {
-                    alert('Failed to submit rating. Please try again.');
-                }
+                if (!response.ok) throw new Error('Failed to send action');
+
+                console.log(`Action sent successfully for song ID ${song.songId}`);
+
             } catch (error) {
-                console.error('Error:', error);
-                alert('An error occurred. Please try again.');
+                console.error(error);
+                alert('An error occurred while sending your action.');
             }
-        });
+        }
 
         displaySong();
     </script>

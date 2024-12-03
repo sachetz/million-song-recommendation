@@ -133,21 +133,22 @@ var kafkaClient = new kafka.KafkaClient({kafkaHost: process.argv[2]});
 var kafkaProducer = new Producer(kafkaClient);
 
 app.post('/rate', function (req, res) {
-    const { userId, songId, rating } = req.body;
+    const { userId, songId, rating, action } = req.body;
+    const timestamp = Date.now();
 
-    console.log(`Received rating: User ${userId} rated song ${songId} with ${rating} stars`);
+    console.log(`Received action: User ${userId} ${action} song ${songId} with rating ${rating}`);
 
     const payload = [{
         topic: 'sachetz_user_actions_topic',
-        messages: JSON.stringify({ userId, songId, rating })
+        messages: JSON.stringify({ userId, songId, rating, action, timestamp })
     }];
 
     kafkaProducer.send(payload, function (err, data) {
         if (err) {
             console.error('Error sending to Kafka:', err);
-            res.status(500).json({ error: 'Failed to send rating' });
+            res.status(500).json({ error: 'Failed to send action' });
         } else {
-            console.log('Rating sent to Kafka:', data);
+            console.log('Action sent to Kafka:', data);
             res.json({ success: true });
         }
     });
