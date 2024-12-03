@@ -6,6 +6,7 @@ import org.apache.hadoop.hbase.client.{ConnectionFactory, Put}
 import org.apache.hadoop.hbase.TableName
 import org.apache.hadoop.hbase.util.Bytes
 import com.hortonworks.hwc.HiveWarehouseSession
+import com.hortonworks.spark.sql.hive.llap.HiveWarehouseSession.HIVE_WAREHOUSE_CONNECTOR
 
 object ALSBasedRecs {
     def main(args: Array[String]): Unit = {
@@ -53,44 +54,22 @@ object ALSBasedRecs {
 
         val recsWithDetails = explodedRecs.join(msd, "song_id")
 
-        // Save Recommendations to HBase
-        // HBase Configuration
-        val hbaseConf = HBaseConfiguration.create()
-        hbaseConf.set("hbase.zookeeper.quorum","mpcs530132017test-hgm1-1-20170924181440.c.mpcs53013-2017.internal,mpcs530132017test-hgm2-2-20170924181505.c.mpcs53013-2017.internal,mpcs530132017test-hgm3-3-20170924181529.c.mpcs53013-2017.internal")
-        hbaseConf.set("zookeeper.znode.parent", "/hbase-unsecure")
-        hbaseConf.set("hbase.zookeeper.property.clientPort", "2181") // Default port
+        val hiveReadyRecs = recsWithDetails
+            .withColumn("row_key", concat_ws("#", $"user_id", $"song_id")) // Create row_key by combining user_id and song_id
+            .select(
+                $"row_key",
+                $"title".alias("song_name"),
+                $"artist_name",
+                $"album_name",
+                $"year"
+            )
 
-        // Function to write a partition of recommendations to HBase
-        def writePartitionToHBase(partition: Iterator[org.apache.spark.sql.Row]): Unit = {
-            val connection = ConnectionFactory.createConnection(hbaseConf)
-            val table = connection.getTable(TableName.valueOf("ALSRecs"))
-
-            partition.foreach { row =>
-                val userId = row.getAs[String]("user_id")
-                val songId = row.getAs[String]("song_id")
-                val songName = row.getAs[String]("title")
-                val artistName = row.getAs[String]("artist_name")
-                val albumName = row.getAs[String]("album_name")
-                val year = row.getAs[Int]("year")
-
-                // Composite Row Key: user_id#song_id
-                val rowKey = s"$userId#$songId"
-
-                val put = new Put(Bytes.toBytes(rowKey))
-                put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("song_name"), Bytes.toBytes(songName))
-                put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("artist_name"), Bytes.toBytes(artistName))
-                put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("album_name"), Bytes.toBytes(albumName))
-                put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("year"), Bytes.toBytes(year.toString))
-
-                table.put(put)
-            }
-
-            table.close()
-            connection.close()
-        }
-
-        // Write to HBase using foreachPartition for efficiency
-        recsWithDetails.foreachPartition(writePartitionToHBase _)
+        // Save Recommendations to Hive Table
+        hiveReadyRecs.write
+            .format(HIVE_WAREHOUSE_CONNECTOR)
+            .mode("overwrite")
+            .option("table", "sachetz_ALSRecs_hive")
+            .save()
 
         // Stop Spark Session
         spark.stop()

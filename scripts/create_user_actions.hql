@@ -2,7 +2,7 @@ CREATE EXTERNAL TABLE sachetz_user_actions (
     song_id STRING,
     action_type STRING,
     action_time TIMESTAMP,
-    rating FLOAT
+    rating DOUBLE
 )
 PARTITIONED BY (user_id STRING)
 STORED AS PARQUET

@@ -3,11 +3,8 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.ml.feature.VectorAssembler
 import org.apache.spark.ml.linalg.Vector
-import org.apache.hadoop.hbase.HBaseConfiguration
-import org.apache.hadoop.hbase.client.{ConnectionFactory, Put}
-import org.apache.hadoop.hbase.TableName
-import org.apache.hadoop.hbase.util.Bytes
 import com.hortonworks.hwc.HiveWarehouseSession
+import com.hortonworks.spark.sql.hive.llap.HiveWarehouseSession.HIVE_WAREHOUSE_CONNECTOR
 
 object ContentBasedRecs {
     def main(args: Array[String]): Unit = {
@@ -20,7 +17,7 @@ object ContentBasedRecs {
 
         val sachetz_user_actions = hive.table("sachetz_user_actions")
         sachetz_user_actions.createOrReplaceTempView("sachetz_user_actions")
-        val sachetz_msd_optimised = hive.table("sachetz_msd_optimised")
+        val sachetz_msd_optimised = hive.table("sachetz_msd")
         sachetz_msd_optimised.createOrReplaceTempView("sachetz_msd_optimised")
 
         import spark.implicits._
@@ -82,49 +79,18 @@ object ContentBasedRecs {
             .withColumn("rank", row_number().over(windowSpec))
             .filter($"rank" <= 10)
             .select(
-                $"user_id",
-                $"song_id",
-                $"title",
+                concat_ws("#", $"user_id", $"song_id").alias("row_key"), // Create row_key
+                $"title".alias("song_name"),
                 $"artist_name",
                 $"album_name",
-                $"year",
-                $"similarity"
+                $"year"
             )
 
-        // Save Recommendations to HBase
-        // HBase Configuration
-        val hbaseConf = HBaseConfiguration.create()
-        hbaseConf.set("hbase.zookeeper.quorum","mpcs530132017test-hgm1-1-20170924181440.c.mpcs53013-2017.internal,mpcs530132017test-hgm2-2-20170924181505.c.mpcs53013-2017.internal,mpcs530132017test-hgm3-3-20170924181529.c.mpcs53013-2017.internal")
-        hbaseConf.set("zookeeper.znode.parent", "/hbase-unsecure")
-        hbaseConf.set("hbase.zookeeper.property.clientPort", "2181") // Default port
-
-        val connection = ConnectionFactory.createConnection(hbaseConf)
-        val table = connection.getTable(TableName.valueOf("ContentBasedRecs"))
-
-        // Function to write a single recommendation to HBase
-        def writeToHBase(row: org.apache.spark.sql.Row): Unit = {
-            val userId = row.getAs[String]("user_id")
-            val songId = row.getAs[String]("song_id")
-            val songName = row.getAs[String]("title")
-            val artistName = row.getAs[String]("artist_name")
-            val albumName = row.getAs[String]("album_name")
-            val year = row.getAs[Int]("year")
-
-            val put = new Put(Bytes.toBytes(s"$userId#$songId"))
-            put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("song_name"), Bytes.toBytes(songName))
-            put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("artist_name"), Bytes.toBytes(artistName))
-            put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("album_name"), Bytes.toBytes(albumName))
-            put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("year"), Bytes.toBytes(year.toString))
-
-            table.put(put)
-        }
-
-        // Collect and write to HBase
-        recommendations.collect().foreach(writeToHBase)
-
-        // Close HBase connections
-        table.close()
-        connection.close()
+        // Insert data into the Hive table
+        recommendations.write.format(HIVE_WAREHOUSE_CONNECTOR)
+            .mode("overwrite") // Use "append" if you don't want to overwrite the table
+            .option("table", "sachetz_ContentBasedRecs_hive") // Insert into the external Hive table
+            .save()
 
         // Stop Spark Session
         spark.stop()
