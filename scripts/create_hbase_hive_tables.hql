@@ -103,3 +103,18 @@ CREATE EXTERNAL TABLE sachetz_OngoingRecs_hive (
 )
 STORED AS ORC
 LOCATION "wasbs://hbase-mpcs5301-2024-10-20t23-28-51-804z@hbasempcs5301hdistorage.blob.core.windows.net/sachetz/OngoingRecs_hive";
+
+CREATE EXTERNAL TABLE sachetz_msd_metadata_hbase (
+    row_key STRING,
+    song_name STRING,
+    artist_name STRING,
+    album_name STRING,
+    year STRING
+)
+STORED BY 'org.apache.hadoop.hive.hbase.HBaseStorageHandler'
+WITH SERDEPROPERTIES (
+    'hbase.columns.mapping' = ':key,details:song_name#b,details:artist_name#b,details:album_name#b,details:year#b'
+)
+TBLPROPERTIES (
+    'hbase.table.name' = 'sachetz_msd_metadata'
+);

@@ -11,5 +11,5 @@
 3. Run on your local cluster:
 > ssh -i \<ssh private key> -C2qTnNf -D 9876 sshuser@hbase-mpcs53014-2024-ssh.azurehdinsight.net
 
-4. Access on Firefox:
+4. Access:
 > http://10.0.0.38:3076/
