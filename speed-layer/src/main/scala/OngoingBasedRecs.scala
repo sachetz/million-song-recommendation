@@ -5,12 +5,50 @@ import org.apache.hadoop.hbase.{HBaseConfiguration, TableName}
 import org.apache.hadoop.hbase.client.{Connection, ConnectionFactory, Put, Table}
 import org.apache.hadoop.hbase.util.Bytes
 import org.apache.kafka.common.serialization.StringDeserializer
-import org.apache.spark.mllib.recommendation.{ALS, Rating}
-import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkConf
+import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.streaming._
 import org.apache.spark.streaming.kafka010._
 import org.slf4j.LoggerFactory
+
+import scala.collection.convert.ImplicitConversions.`collection asJava`
+import scala.math.sqrt
+
+// Case class for user actions
+case class UserAction(
+                         userId: String,
+                         songId: String,
+                         rating: Double,
+                         action: String,
+                         timestamp: Long
+                     )
+
+// Case class for song metadata
+case class SongMetadata(
+                           song_id: String,
+                           title: String,
+                           artist_name: String,
+                           album_name: String,
+                           year: Int,
+                           danceability: Double,
+                           duration: Double,
+                           energy: Double,
+                           loudness: Double,
+                           mode: Int,
+                           tempo: Double
+                       )
+
+// Case class for user-specific recommendations
+case class UserRecommendation(
+                                 user_id: String,
+                                 song_id: String,
+                                 title: String,
+                                 artist_name: String,
+                                 album_name: String,
+                                 year: Int
+                             )
 
 object OngoingBasedRecs {
     // Initialize Logger
@@ -24,7 +62,9 @@ object OngoingBasedRecs {
     // HBase configuration for writing recommendations
     val hbaseConf: Configuration = HBaseConfiguration.create()
     hbaseConf.set("hbase.zookeeper.property.clientPort", "2181")
-    hbaseConf.set("hbase.zookeeper.quorum", "localhost")
+    // hbaseConf.set("hbase.zookeeper.quorum", "localhost")
+    hbaseConf.set("hbase.zookeeper.quorum","mpcs530132017test-hgm1-1-20170924181440.c.mpcs53013-2017.internal,mpcs530132017test-hgm2-2-20170924181505.c.mpcs53013-2017.internal,mpcs530132017test-hgm3-3-20170924181529.c.mpcs53013-2017.internal")
+    hbaseConf.set("zookeeper.znode.parent", "/hbase-unsecure")
 
     // HBase table name for recommendations
     val RECS_TABLE = "sachetz_OngoingRecs"
@@ -37,7 +77,7 @@ object OngoingBasedRecs {
                   |  <brokers> is a list of one or more Kafka brokers
                   |  <batchIntervalSeconds> is the batch interval for Spark Streaming
                   |
-            """.stripMargin)
+                """.stripMargin)
             System.exit(1)
         }
 
@@ -47,6 +87,51 @@ object OngoingBasedRecs {
         // Initialize Spark Streaming Context with checkpointing
         val sparkConf = new SparkConf().setAppName("sachetz_speed_ongoingbasedrecs")
         val ssc = new StreamingContext(sparkConf, batchInterval)
+
+        // Initialize SparkSession
+        val spark = SparkSession.builder.config(sparkConf).enableHiveSupport().getOrCreate()
+        import spark.implicits._
+
+        // Load and process song metadata once and broadcast it
+        val songMetadataDF = spark.table("sachetz_msd").select(
+            "song_id", "title", "artist_name", "album_name", "year",
+            "danceability", "duration", "energy", "loudness", "mode", "tempo"
+        )
+
+        // Convert DataFrame to RDD of SongMetadata
+        val songMetadataRDD = songMetadataDF.rdd.map(row => SongMetadata(
+            song_id = row.getAs[String]("song_id"),
+            title = row.getAs[String]("title"),
+            artist_name = row.getAs[String]("artist_name"),
+            album_name = row.getAs[String]("album_name"),
+            year = row.getAs[Int]("year"),
+            danceability = row.getAs[Double]("danceability"),
+            duration = row.getAs[Double]("duration"),
+            energy = row.getAs[Double]("energy"),
+            loudness = row.getAs[Double]("loudness"),
+            mode = row.getAs[Int]("mode"),
+            tempo = row.getAs[Double]("tempo")
+        )).cache()
+
+        // Create a map of song_id to feature vector
+        val songFeatures: Map[String, Array[Double]] = songMetadataRDD.map { song =>
+            val features = Array(
+                song.danceability,
+                song.duration,
+                song.energy,
+                song.loudness,
+                song.mode.toDouble,
+                song.tempo
+            )
+            (song.song_id, features)
+        }.collectAsMap().toMap
+
+        // Broadcast the song features map for efficient lookup
+        val songFeaturesBroadcast: Broadcast[Map[String, Array[Double]]] = ssc.sparkContext.broadcast(songFeatures)
+
+        // Broadcast song metadata for enrichment
+        val songMetadataMap: Map[String, SongMetadata] = songMetadataRDD.map(song => (song.song_id, song)).collectAsMap().toMap
+        val songMetadataBroadcast: Broadcast[Map[String, SongMetadata]] = ssc.sparkContext.broadcast(songMetadataMap)
 
         // Kafka parameters
         val topicsSet = Set("sachetz_user_actions_topic")
@@ -66,7 +151,25 @@ object OngoingBasedRecs {
             ConsumerStrategies.Subscribe[String, String](topicsSet, kafkaParams)
         )
 
-        // Deserialize JSON messages to UserAction
+        // Function to compute cosine similarity between two vectors
+        def cosineSimilarity(vec1: Array[Double], vec2: Array[Double]): Double = {
+            val dotProduct = vec1.zip(vec2).map { case (a, b) => a * b }.sum
+            val normA = sqrt(vec1.map(x => x * x).sum)
+            val normB = sqrt(vec2.map(x => x * x).sum)
+            if (normA == 0.0 || normB == 0.0) 0.0 else dotProduct / (normA * normB)
+        }
+
+        // Function to compute average feature vector for a user's interacted songs
+        def averageUserVector(songIds: Iterable[String], songFeaturesMap: Map[String, Array[Double]]): Option[Array[Double]] = {
+            val vectors = songIds.flatMap(songFeaturesMap.get)
+            if (vectors.isEmpty) None
+            else {
+                val summed = vectors.reduce((a, b) => a.zip(b).map { case (x, y) => x + y })
+                Some(summed.map(_ / vectors.size))
+            }
+        }
+
+        // Deserialize JSON messages to UserAction and process
         kafkaStream.foreachRDD { rdd =>
             if (!rdd.isEmpty()) {
                 // Retrieve offset ranges
@@ -91,13 +194,6 @@ object OngoingBasedRecs {
                         }
                     }).filter(_ != null)
 
-                    // Initialize SparkSession (reuse if possible)
-                    val spark = org.apache.spark.sql.SparkSession.builder
-                        .config(rdd.sparkContext.getConf)
-                        .enableHiveSupport()
-                        .getOrCreate()
-                    import spark.implicits._
-
                     // Write user actions to Hive (Batch Layer)
                     val actionsDF = userActions.map(action => (
                         action.userId,
@@ -109,83 +205,77 @@ object OngoingBasedRecs {
 
                     actionsDF.write.mode("append").insertInto("sachetz_user_actions")
 
-                    // Generate Recommendations using ALS
-                    val playedActions = userActions.filter(_.action == "played").map(action => {
-                        // Convert userId and songId to unique integer IDs
-                        Rating(action.userId.hashCode, action.songId.hashCode, action.rating)
-                    })
+                    // Generate Content-Based Recommendations Per User
+                    val playedActionsByUser: RDD[(String, Iterable[String])] = userActions
+                        .filter(_.action == "played")
+                        .map(action => (action.userId, action.songId))
+                        .groupByKey()
 
-                    val playedActionsCount = playedActions.count()
-                    if (playedActionsCount >= 5) { // Adjust the threshold as needed
-                        // Train ALS model
-                        val rank = 10
-                        val numIterations = 5
-                        val lambda = 0.01
-                        val alsModel = ALS.train(playedActions, rank, numIterations, lambda)
+                    val songFeaturesMap = songFeaturesBroadcast.value
+                    val userMetadataMap = songMetadataBroadcast.value
 
-                        // Generate top 10 recommendations for all users
-                        val userRecs = alsModel.recommendProductsForUsers(10)
+                    playedActionsByUser.foreachPartition { partition =>
+                        // Initialize HBase connection and table inside the partition
+                        var connection: Connection = null
+                        var table: Table = null
+                        try {
+                            connection = ConnectionFactory.createConnection(hbaseConf)
+                            table = connection.getTable(TableName.valueOf(RECS_TABLE))
 
-                        // Flatten the recommendations
-                        val flattenedRecs: RDD[(String, String, Double)] = userRecs.flatMap { case (_, recs) =>
-                            recs.map(rec => (
-                                rec.user.toString,
-                                rec.product.toString,
-                                rec.rating
-                            ))
-                        }
+                            partition.foreach { case (userId, playedSongIds) =>
+                                // Compute average user vector
+                                val userVectorOpt = averageUserVector(playedSongIds, songFeaturesMap)
 
-                        // Enrich recommendations with song metadata
-                        val songMetadataDF = spark.table("sachetz_msd").select("song_id", "title", "artist_name", "album_name", "year")
-                        val songMetadata = songMetadataDF.rdd.map(row => (
-                            row.getAs[String]("song_id"),
-                            (row.getAs[String]("title"), row.getAs[String]("artist_name"), row.getAs[String]("album_name"), row.getAs[Int]("year"))
-                        )).collectAsMap()
+                                userVectorOpt.foreach { userVector =>
+                                    // Compute similarity for all songs
+                                    val similarities = songFeaturesMap.map { case (songId, features) =>
+                                        val sim = cosineSimilarity(userVector, features)
+                                        (songId, sim)
+                                    }
 
-                        val songMetadataBroadcast = ssc.sparkContext.broadcast(songMetadata)
+                                    // Get top 10 similar songs excluding already played
+                                    val topRecs = similarities
+                                        .filter { case (songId, _) => !playedSongIds.contains(songId) }
+                                        .toSeq
+                                        .sortBy(-_._2)
+                                        .take(10)
 
-                        val enrichedRecs: RDD[SongMetadata] = flattenedRecs.map { case (userId, songId, _) =>
-                            val metadata = songMetadataBroadcast.value.getOrElse(songId, ("Unknown", "Unknown", "Unknown", 0))
-                            SongMetadata(
-                                user_id = userId,
-                                song_id = songId,
-                                song_name = metadata._1,
-                                artist_name = metadata._2,
-                                album_name = metadata._3,
-                                year = metadata._4
-                            )
-                        }
+                                    // Enrich recommendations with song metadata
+                                    val enrichedRecs: Seq[UserRecommendation] = topRecs.flatMap { case (songId, _) =>
+                                        userMetadataMap.get(songId).map { song =>
+                                            UserRecommendation(
+                                                user_id = userId,
+                                                song_id = song.song_id,
+                                                title = song.title,
+                                                artist_name = song.artist_name,
+                                                album_name = song.album_name,
+                                                year = song.year
+                                            )
+                                        }
+                                    }
 
-                        // Write to HBase using direct Put operations
-                        enrichedRecs.foreachPartition { partition =>
-                            // Initialize HBase connection and table inside the partition
-                            var connection: Connection = null
-                            var table: Table = null
-                            try {
-                                connection = ConnectionFactory.createConnection(hbaseConf)
-                                table = connection.getTable(TableName.valueOf(RECS_TABLE))
-                                partition.foreach { rec =>
-                                    // Create composite row key: userId_songId
-                                    val rowKey = s"${rec.user_id}_${rec.song_id}"
-                                    val put = new Put(Bytes.toBytes(rowKey))
-                                    put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("song_name#b"), Bytes.toBytes(rec.song_name))
-                                    put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("artist_name#b"), Bytes.toBytes(rec.artist_name))
-                                    put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("album_name#b"), Bytes.toBytes(rec.album_name))
-                                    put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("year#b"), Bytes.toBytes(rec.year.toString)) // Store year as String
-                                    table.put(put)
+                                    // Write to HBase
+                                    enrichedRecs.foreach { rec =>
+                                        // Create row key: userId_songId
+                                        val rowKey = s"${rec.user_id}_${rec.song_id}"
+                                        val put = new Put(Bytes.toBytes(rowKey))
+                                        put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("song_name#b"), Bytes.toBytes(rec.title))
+                                        put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("artist_name#b"), Bytes.toBytes(rec.artist_name))
+                                        put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("album_name#b"), Bytes.toBytes(rec.album_name))
+                                        put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("year#b"), Bytes.toBytes(rec.year.toString)) // Store year as String
+                                        table.put(put)
+                                    }
+
+                                    logger.info(s"Added ${enrichedRecs.size} recommendations to HBase for user: $userId")
                                 }
-                            } catch {
-                                case e: Exception =>
-                                    logger.error("Error writing to HBase", e)
-                            } finally {
-                                if (table != null) table.close()
-                                if (connection != null && !connection.isClosed) connection.close()
                             }
+                        } catch {
+                            case e: Exception =>
+                                logger.error("Error writing to HBase", e)
+                        } finally {
+                            if (table != null) table.close()
+                            if (connection != null && !connection.isClosed) connection.close()
                         }
-
-                        logger.info(s"${playedActionsCount} recommendations added to HBase")
-                    } else {
-                        logger.info(s"${playedActionsCount} recommendations skipped due to low song count")
                     }
 
                     // Commit Offsets after successful processing
