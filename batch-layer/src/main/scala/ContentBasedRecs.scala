@@ -3,9 +3,6 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.ml.feature.VectorAssembler
 import org.apache.spark.ml.linalg.{Vector, Vectors}
-import org.apache.spark.mllib.linalg
-//import com.hortonworks.hwc.HiveWarehouseSession
-//import com.hortonworks.spark.sql.hive.llap.HiveWarehouseSession.HIVE_WAREHOUSE_CONNECTOR
 
 object ContentBasedRecs {
     def main(args: Array[String]): Unit = {
@@ -14,16 +11,10 @@ object ContentBasedRecs {
             .appName("sachetz_batch_contentbasedrecs")
             .enableHiveSupport()
             .getOrCreate()
-//        val hive = HiveWarehouseSession.session(spark).build()
-//        hive.setDatabase("default")
-//
-//        val sachetz_user_actions = hive.table("sachetz_user_actions")
-//        sachetz_user_actions.createOrReplaceTempView("sachetz_user_actions")
-//        val sachetz_msd_optimised = hive.table("sachetz_msd")
-//        sachetz_msd_optimised.createOrReplaceTempView("sachetz_msd_optimised")
 
         import spark.implicits._
 
+        // UDF to compute the vector holding the average across each dimension of the vectors
         val averageVectors = udf(
             (vectors: Seq[Vector]) => {
                 if (vectors == null || vectors.isEmpty) {
@@ -53,7 +44,7 @@ object ContentBasedRecs {
         val userActions = spark.sql("SELECT user_id, song_id, rating FROM sachetz_user_actions")
             .filter($"rating" >= highRatingThreshold)
 
-        // Join with MSD Optimised to Get Song Features
+        // Join with MSD to Get Song Features
         val msdFeatures = spark.sql("SELECT * FROM sachetz_msd")
             .select("song_id", "artist_hotttnesss", "danceability", "duration", "energy",
                 "loudness", "tempo", "song_hotttnesss", "title", "artist_name", "album_name", "year")
@@ -69,7 +60,6 @@ object ContentBasedRecs {
             .select("user_id", "song_id", "features")
 
         // Compute Average Feature Vector per User
-        // Note: Spark ML's Vector types don't support averaging directly, so use UDF
         val avgUserFeatures = userFeatures.groupBy("user_id")
             .agg(
                 averageVectors(collect_list("features")).alias("avg_features")
@@ -105,7 +95,7 @@ object ContentBasedRecs {
             .withColumn("rank", row_number().over(windowSpec))
             .filter($"rank" <= 10)
             .select(
-                concat_ws("#", $"user_id", $"song_id").alias("row_key"), // Create row_key
+                concat_ws("#", $"user_id", $"song_id").alias("row_key"), // Create row_key for hbase
                 $"title".alias("song_name"),
                 $"artist_name",
                 $"album_name",
@@ -114,11 +104,10 @@ object ContentBasedRecs {
 
         // Insert data into the Hive table
         recommendations.write
-            .mode("overwrite") // Use "append" if you don't want to overwrite the table
+            .mode("overwrite")
             .insertInto("sachetz_ContentBasedRecs_hive")
 
         // Stop Spark Session
-//        hive.close()
         spark.stop()
     }
 }

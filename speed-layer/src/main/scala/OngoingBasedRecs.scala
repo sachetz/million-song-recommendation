@@ -2,7 +2,7 @@ import com.fasterxml.jackson.databind.{DeserializationFeature, ObjectMapper}
 import com.fasterxml.jackson.module.scala.{DefaultScalaModule, ScalaObjectMapper}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.hbase.{HBaseConfiguration, TableName}
-import org.apache.hadoop.hbase.client.{Connection, ConnectionFactory, Put, Table}
+import org.apache.hadoop.hbase.client.{ConnectionFactory, Put}
 import org.apache.hadoop.hbase.util.Bytes
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.spark.SparkConf
@@ -15,40 +15,6 @@ import org.slf4j.LoggerFactory
 
 import scala.collection.convert.ImplicitConversions.`collection asJava`
 import scala.math.sqrt
-
-// Case class for user actions
-case class UserAction(
-                         userId: String,
-                         songId: String,
-                         rating: Double,
-                         action: String,
-                         timestamp: Long
-                     )
-
-// Case class for song metadata
-case class SongMetadata(
-                           song_id: String,
-                           title: String,
-                           artist_name: String,
-                           album_name: String,
-                           year: Int,
-                           danceability: Double,
-                           duration: Double,
-                           energy: Double,
-                           loudness: Double,
-                           mode: Int,
-                           tempo: Double
-                       )
-
-// Case class for user-specific recommendations
-case class UserRecommendation(
-                                 user_id: String,
-                                 song_id: String,
-                                 title: String,
-                                 artist_name: String,
-                                 album_name: String,
-                                 year: Int
-                             )
 
 object OngoingBasedRecs {
     // Initialize Logger
@@ -76,24 +42,26 @@ object OngoingBasedRecs {
             System.exit(1)
         }
 
+        // Fetch batch interval and brokers from the args
         val Array(brokers, batchIntervalStr) = args
         val batchInterval = Seconds(batchIntervalStr.toInt)
 
-        // Initialize Spark Streaming Context with checkpointing
+        // Initialize Spark Streaming Context
         val sparkConf = new SparkConf().setAppName("sachetz_speed_ongoingbasedrecs")
         val ssc = new StreamingContext(sparkConf, batchInterval)
 
         // Initialize SparkSession
         val spark = SparkSession.builder.config(sparkConf).enableHiveSupport().getOrCreate()
+
         import spark.implicits._
 
-        // Load and process song metadata once and broadcast it
+        // Load and process song metadata once
         val songMetadataDF = spark.table("sachetz_msd").select(
             "song_id", "title", "artist_name", "album_name", "year",
             "danceability", "duration", "energy", "loudness", "mode", "tempo"
         )
 
-        // Convert DataFrame to RDD of SongMetadata
+        // Convert DataFrame to RDD of SongMetadata and cache it for future usage
         val songMetadataRDD = songMetadataDF.rdd.map(row => SongMetadata(
             song_id = row.getAs[String]("song_id"),
             title = row.getAs[String]("title"),
@@ -189,7 +157,7 @@ object OngoingBasedRecs {
                         }
                     }).filter(_ != null)
 
-                    // Write user actions to Hive (Batch Layer)
+                    // Write user actions to Hive to save as data lake
                     val actionsDF = userActions.map(action => (
                         action.userId,
                         action.songId,
@@ -245,7 +213,7 @@ object OngoingBasedRecs {
 
                                     // Write to HBase
                                     enrichedRecs.foreach { rec =>
-                                        // Create row key: userId_songId
+                                        // Create row key: userId#songId
                                         val rowKey = s"${rec.user_id}#${rec.song_id}"
                                         val put = new Put(Bytes.toBytes(rowKey))
                                         put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("song_name"), Bytes.toBytes(rec.title))
@@ -268,9 +236,9 @@ object OngoingBasedRecs {
                     kafkaStream.asInstanceOf[CanCommitOffsets].commitAsync(offsetRanges)
                     logger.info(s"Successfully processed and committed offsets")
                 } catch {
+                    // Offsets are not committed, allowing for reprocessing
                     case e: Exception =>
                         logger.error("Error processing RDD, offsets not committed", e)
-                    // Offsets are not committed, allowing for reprocessing
                 }
             }
         }

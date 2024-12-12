@@ -18,7 +18,7 @@ object ALSBasedRecs {
         val userActions = spark.sql("SELECT user_id, song_id, rating FROM sachetz_user_actions")
             .filter($"rating".isNotNull && $"user_id".isNotNull && $"song_id".isNotNull)
 
-        // Load MSD Optimised for Song Details
+        // Load MSD for Song Details
         val msd = spark.sql("SELECT song_id, title, artist_name, album_name, year FROM sachetz_msd")
 
         // Initialize StringIndexer for user_id
@@ -33,18 +33,19 @@ object ALSBasedRecs {
             .setOutputCol("song_id_indexed")
             .setHandleInvalid("skip") // Skip invalid or unseen labels
 
-        // Create a Pipeline for indexing
+        // Create Pipelines for indexing string ids to numeric values for ALS
         val indexerSongPipeline = new Pipeline().setStages(Array(songIndexer))
         val indexerActionPipeline = new Pipeline().setStages(Array(userIndexer))
 
-        // Fit the Pipeline to the userActions DataFrame
+        // Fit the Pipeline to the userActions and msd DataFrames
         val indexerSongModel = indexerSongPipeline.fit(msd)
         val indexerActionsModel = indexerActionPipeline.fit(userActions)
 
+        // Transform the userActions dataframe with the two fit pipelines
         val songIndexedActions = indexerSongModel.transform(userActions)
         val userIndexedActions = indexerActionsModel.transform(songIndexedActions)
         val indexedUserActions = userIndexedActions
-            .withColumn("rating_numeric", $"rating".cast("float")) // Cast rating to float
+            .withColumn("rating_numeric", $"rating".cast("float")) // Cast rating to float for ALS
             .select("user_id_indexed", "song_id_indexed", "rating_numeric")
         val indexedMSD = indexerSongModel.transform(msd)
 
@@ -56,7 +57,7 @@ object ALSBasedRecs {
             .setItemCol("song_id_indexed")
             .setRatingCol("rating_numeric")
             .setColdStartStrategy("drop") // To handle NaN predictions
-            .setNonnegative(true) // Optional: Ensures latent factors are non-negative
+            .setNonnegative(true) // Ensures latent factors are non-negative
 
         // Train ALS Model on Indexed Data
         val model = als.fit(indexedUserActions)
@@ -69,13 +70,14 @@ object ALSBasedRecs {
             .withColumn("rec", explode($"recommendations"))
             .select($"user_id_indexed", $"rec.song_id_indexed", $"rec.rating")
 
+        // Join with indexed actions and msd tables to get the string ids from indexed ids
         val recsWithDetails = explodedRecs
             .join(userIndexedActions.select("user_id", "user_id_indexed").distinct(), Seq("user_id_indexed"), "left")
             .join(indexedMSD, Seq("song_id_indexed"))
 
-        // Create row_key by concatenating user_id_indexed and song_id with a delimiter
+        // Create row_key by concatenating user_id and song_id with a delimiter
         val hiveReadyRecs = recsWithDetails
-            .withColumn("row_key", concat_ws("#", $"user_id", $"song_id")) // Using indexed user_id
+            .withColumn("row_key", concat_ws("#", $"user_id", $"song_id"))
             .select(
                 $"row_key",
                 $"title".alias("song_name"),
@@ -86,7 +88,7 @@ object ALSBasedRecs {
 
         // Save Recommendations to Hive Table
         hiveReadyRecs.write
-            .mode("overwrite") // Overwrite mode; change as needed
+            .mode("overwrite")
             .insertInto("sachetz_ALSRecs_hive")
 
         // Stop Spark Session
