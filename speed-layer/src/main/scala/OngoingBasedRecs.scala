@@ -61,13 +61,8 @@ object OngoingBasedRecs {
 
     // HBase configuration for writing recommendations
     val hbaseConf: Configuration = HBaseConfiguration.create()
-    hbaseConf.set("hbase.zookeeper.property.clientPort", "2181")
-    // hbaseConf.set("hbase.zookeeper.quorum", "localhost")
-    hbaseConf.set("hbase.zookeeper.quorum","mpcs530132017test-hgm1-1-20170924181440.c.mpcs53013-2017.internal,mpcs530132017test-hgm2-2-20170924181505.c.mpcs53013-2017.internal,mpcs530132017test-hgm3-3-20170924181529.c.mpcs53013-2017.internal")
-    hbaseConf.set("zookeeper.znode.parent", "/hbase-unsecure")
-
-    // HBase table name for recommendations
-    val RECS_TABLE = "sachetz_OngoingRecs"
+    val hbaseConnection = ConnectionFactory.createConnection(hbaseConf)
+    val hbaseTable = hbaseConnection.getTable(TableName.valueOf("sachetz_OngoingRecs"))
 
     def main(args: Array[String]): Unit = {
         if (args.length < 2) {
@@ -207,7 +202,7 @@ object OngoingBasedRecs {
 
                     // Generate Content-Based Recommendations Per User
                     val playedActionsByUser: RDD[(String, Iterable[String])] = userActions
-                        .filter(_.action == "played")
+                        .filter(_.action == "listened")
                         .map(action => (action.userId, action.songId))
                         .groupByKey()
 
@@ -215,13 +210,7 @@ object OngoingBasedRecs {
                     val userMetadataMap = songMetadataBroadcast.value
 
                     playedActionsByUser.foreachPartition { partition =>
-                        // Initialize HBase connection and table inside the partition
-                        var connection: Connection = null
-                        var table: Table = null
                         try {
-                            connection = ConnectionFactory.createConnection(hbaseConf)
-                            table = connection.getTable(TableName.valueOf(RECS_TABLE))
-
                             partition.foreach { case (userId, playedSongIds) =>
                                 // Compute average user vector
                                 val userVectorOpt = averageUserVector(playedSongIds, songFeaturesMap)
@@ -263,7 +252,7 @@ object OngoingBasedRecs {
                                         put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("artist_name#b"), Bytes.toBytes(rec.artist_name))
                                         put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("album_name#b"), Bytes.toBytes(rec.album_name))
                                         put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("year#b"), Bytes.toBytes(rec.year.toString)) // Store year as String
-                                        table.put(put)
+                                        hbaseTable.put(put)
                                     }
 
                                     logger.info(s"Added ${enrichedRecs.size} recommendations to HBase for user: $userId")
@@ -272,9 +261,6 @@ object OngoingBasedRecs {
                         } catch {
                             case e: Exception =>
                                 logger.error("Error writing to HBase", e)
-                        } finally {
-                            if (table != null) table.close()
-                            if (connection != null && !connection.isClosed) connection.close()
                         }
                     }
 
