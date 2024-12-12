@@ -1,8 +1,8 @@
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
 import org.apache.spark.ml.recommendation.ALS
-//import com.hortonworks.hwc.HiveWarehouseSession
-//import com.hortonworks.spark.sql.hive.llap.HiveWarehouseSession.HIVE_WAREHOUSE_CONNECTOR
+import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.ml.Pipeline
 
 object ALSBasedRecs {
     def main(args: Array[String]): Unit = {
@@ -11,13 +11,6 @@ object ALSBasedRecs {
             .appName("sachetz_batch_alsbasedrecs")
             .enableHiveSupport()
             .getOrCreate()
-//        val hive = HiveWarehouseSession.session(spark).build()
-//        hive.setDatabase("default")
-//
-//        val sachetz_user_actions = hive.table("sachetz_user_actions")
-//        sachetz_user_actions.createOrReplaceTempView("sachetz_user_actions")
-//        val sachetz_msd_optimised = hive.table("sachetz_msd_optimised")
-//        sachetz_msd_optimised.createOrReplaceTempView("sachetz_msd_optimised")
 
         import spark.implicits._
 
@@ -27,32 +20,62 @@ object ALSBasedRecs {
 
         // Load MSD Optimised for Song Details
         val msd = spark.sql("SELECT song_id, title, artist_name, album_name, year FROM sachetz_msd")
-            .select("song_id", "title", "artist_name", "album_name", "year")
 
-        // Prepare ALS Model
+        // Initialize StringIndexer for user_id
+        val userIndexer = new StringIndexer()
+            .setInputCol("user_id")
+            .setOutputCol("user_id_indexed")
+            .setHandleInvalid("skip") // Skip invalid or unseen labels
+
+        // Initialize StringIndexer for song_id
+        val songIndexer = new StringIndexer()
+            .setInputCol("song_id")
+            .setOutputCol("song_id_indexed")
+            .setHandleInvalid("skip") // Skip invalid or unseen labels
+
+        // Create a Pipeline for indexing
+        val indexerSongPipeline = new Pipeline().setStages(Array(songIndexer))
+        val indexerActionPipeline = new Pipeline().setStages(Array(userIndexer))
+
+        // Fit the Pipeline to the userActions DataFrame
+        val indexerSongModel = indexerSongPipeline.fit(msd)
+        val indexerActionsModel = indexerActionPipeline.fit(userActions)
+
+        val songIndexedActions = indexerSongModel.transform(userActions)
+        val userIndexedActions = indexerActionsModel.transform(songIndexedActions)
+        val indexedUserActions = userIndexedActions
+            .withColumn("rating_numeric", $"rating".cast("float")) // Cast rating to float
+            .select("user_id_indexed", "song_id_indexed", "rating_numeric")
+        val indexedMSD = indexerSongModel.transform(msd)
+
+        // Configure ALS Model with Indexed Columns
         val als = new ALS()
             .setMaxIter(10)
             .setRegParam(0.1)
-            .setUserCol("user_id")
-            .setItemCol("song_id")
-            .setRatingCol("rating")
+            .setUserCol("user_id_indexed")
+            .setItemCol("song_id_indexed")
+            .setRatingCol("rating_numeric")
             .setColdStartStrategy("drop") // To handle NaN predictions
+            .setNonnegative(true) // Optional: Ensures latent factors are non-negative
 
-        // Train ALS Model
-        val model = als.fit(userActions)
+        // Train ALS Model on Indexed Data
+        val model = als.fit(indexedUserActions)
 
         // Generate Top 10 Recommendations per User
         val userRecs = model.recommendForAllUsers(10)
 
-        // Explode Recommendations and Join with MSD for Details
+        // Explode Recommendations to have one recommendation per row
         val explodedRecs = userRecs
             .withColumn("rec", explode($"recommendations"))
-            .select($"user_id", $"rec.song_id", $"rec.rating".alias("predicted_rating"))
+            .select($"user_id_indexed", $"rec.song_id_indexed", $"rec.rating")
 
-        val recsWithDetails = explodedRecs.join(msd, "song_id")
+        val recsWithDetails = explodedRecs
+            .join(userIndexedActions.select("user_id", "user_id_indexed").distinct(), Seq("user_id_indexed"), "left")
+            .join(indexedMSD, Seq("song_id_indexed"))
 
+        // Create row_key by concatenating user_id_indexed and song_id with a delimiter
         val hiveReadyRecs = recsWithDetails
-            .withColumn("row_key", concat_ws("#", $"user_id", $"song_id")) // Create row_key by combining user_id and song_id
+            .withColumn("row_key", concat_ws("#", $"user_id", $"song_id")) // Using indexed user_id
             .select(
                 $"row_key",
                 $"title".alias("song_name"),
@@ -63,11 +86,10 @@ object ALSBasedRecs {
 
         // Save Recommendations to Hive Table
         hiveReadyRecs.write
-            .mode("overwrite")
+            .mode("overwrite") // Overwrite mode; change as needed
             .insertInto("sachetz_ALSRecs_hive")
 
         // Stop Spark Session
-//        hive.close()
         spark.stop()
     }
 }
