@@ -2,7 +2,8 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.ml.feature.VectorAssembler
-import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.ml.linalg.{Vector, Vectors}
+import org.apache.spark.mllib.linalg
 //import com.hortonworks.hwc.HiveWarehouseSession
 //import com.hortonworks.spark.sql.hive.llap.HiveWarehouseSession.HIVE_WAREHOUSE_CONNECTOR
 
@@ -22,6 +23,30 @@ object ContentBasedRecs {
 //        sachetz_msd_optimised.createOrReplaceTempView("sachetz_msd_optimised")
 
         import spark.implicits._
+
+        val averageVectors = udf(
+            (vectors: Seq[Vector]) => {
+                if (vectors == null || vectors.isEmpty) {
+                    Vectors.dense(Array.empty[Double])
+                } else {
+                    // Initialize an array to hold the sum of each dimension
+                    val sumArray = Array.fill(vectors.head.size)(0.0)
+
+                    // Sum each dimension across all vectors
+                    vectors.foreach { vector =>
+                        vector.toArray.zipWithIndex.foreach { case (value, idx) =>
+                            sumArray(idx) += value
+                        }
+                    }
+
+                    // Compute the average for each dimension
+                    val count = vectors.size.toDouble
+                    val avgArray = sumArray.map(_ / count)
+
+                    Vectors.dense(avgArray)
+                }
+            }
+        )
 
         // Load User Actions and Filter for High Ratings
         val highRatingThreshold = 3.5
@@ -47,7 +72,7 @@ object ContentBasedRecs {
         // Note: Spark ML's Vector types don't support averaging directly, so use UDF
         val avgUserFeatures = userFeatures.groupBy("user_id")
             .agg(
-                avg("features").alias("avg_features")
+                averageVectors(collect_list("features")).alias("avg_features")
             )
 
         // Prepare All Songs with Feature Vectors
