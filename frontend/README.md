@@ -13,6 +13,16 @@ skip a song—logged as “skipped” and excluded from future recommendation ge
 All interactions, including user ID, song ID, rating, action type (listened or skipped), and timestamp, are published to
 a Kafka topic for further processing.
 
+## Screenshots
+
+User login:
+![User Login](./user_setup.png)
+
+Recommendations:
+![Song Recommendations](./song_recommendation.png)
+
+Publishing to Kafka:
+![Kafka Topic](./kafka_topic.png)
 
 ## Future Work
 

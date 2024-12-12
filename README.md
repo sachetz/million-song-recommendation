@@ -5,6 +5,8 @@ the lambda architecture with both batch and real-time processing. The architectu
 (MSD), live user actions, and scalable tools like Spark, Kafka, and HBase to create an efficient recommendation 
 pipeline.
 
+Further details can be found in the README.md files within each of the project directories.
+
 ## Design
 
 ![App Design](./design.png)

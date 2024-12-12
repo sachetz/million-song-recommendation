@@ -9,6 +9,11 @@ lake and supporting further recommendation generation in the batch layer.
 Additionally, the speed layer processes this user action data to produce real-time recommendations using feature 
 similarity. These recommendations are then stored in the HBase table sachetz_OngoingRecs for immediate use.
 
+## Screenshots
+
+Live Recommendations:
+![Live Recs](./live_recs.png)
+
 ## Future Work
 
 The current implementation simplifies recommendation generation by focusing on a subset of the MSD dataset. However, the

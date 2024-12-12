@@ -12,6 +12,17 @@ song_hottness and artist_hottness metrics due to limited user actions.
 Each recommendation type is generated through separate Spark jobs, scheduled to run daily. The resulting data is written
 to Hive, and then transferred to HBase using HQL scripts, enabling frontend access.
 
+## Screenshots
+
+Popularity based recommendations:
+![Popularity Recs](./popularity_recs.png)
+
+User Similarity based Recommendations:
+![User Similarity Recs](./user_similarity_recs.png)
+
+Content Similarity based Recommendations:
+![Content Similarity Recs](./content_similarity_recs.png)
+
 ## Future Work
 
 1.	Improving Popularity-Based Recommendations 
