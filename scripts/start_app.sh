@@ -1,1 +1,1 @@
-spark-submit-with-hive --executor-memory=4g --driver-memory=4g --class OngoingBasedRecs speed-layer/target/uber-speed-layer-1.0-SNAPSHOT.jar  $KAFKABROKERS 30
+spark-submit-with-hive --executor-memory=4g --driver-memory=4g --class OngoingBasedRecs speed-layer/target/uber-speed-layer-1.0-SNAPSHOT.jar $KAFKABROKERS 30

@@ -246,7 +246,7 @@ object OngoingBasedRecs {
                                     // Write to HBase
                                     enrichedRecs.foreach { rec =>
                                         // Create row key: userId_songId
-                                        val rowKey = s"${rec.user_id}_${rec.song_id}"
+                                        val rowKey = s"${rec.user_id}#${rec.song_id}"
                                         val put = new Put(Bytes.toBytes(rowKey))
                                         put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("song_name#b"), Bytes.toBytes(rec.title))
                                         put.addColumn(Bytes.toBytes("details"), Bytes.toBytes("artist_name#b"), Bytes.toBytes(rec.artist_name))
